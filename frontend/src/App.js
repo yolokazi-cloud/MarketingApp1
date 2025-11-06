@@ -17,7 +17,7 @@ const App = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const budgetResponse = await fetch(''https://marketingapp-backend.onrender.com/api/budget');
+      const budgetResponse = await fetch('https://marketingapp-backend.onrender.com/api/budget');
       if (!budgetResponse.ok) {
         throw new Error(`HTTP error! status: ${budgetResponse.status}`);
       }

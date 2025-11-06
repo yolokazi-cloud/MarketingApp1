@@ -58,7 +58,7 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
     const formData = new FormData();
     formData.append('file', file);
 
-    const endpoint = `http://localhost:3001/api/upload/${dataType}s`; // FIX: Use plural 'actuals' or 'anticipateds'
+    const endpoint = `https://marketingapp-backend.onrender.com/api/upload/${dataType}s`; // FIX: Use plural 'actuals' or 'anticipateds'
 
     try {
       const response = await window.fetch(endpoint, {
