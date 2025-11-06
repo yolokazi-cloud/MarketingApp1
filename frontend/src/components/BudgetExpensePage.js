@@ -288,22 +288,6 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
       setEditMonthError(`Error updating record: ${error.message}`);
     }
   };
-  
-<<<<<<< HEAD
-=======
-  const handleDeleteMonth = async (recordToDelete) => {
-    if (window.confirm(`Are you sure you want to delete this record?`)) {
-      try {
-        const response = await fetch(`https://marketingapp1.onrender.com/api/actuals/${recordToDelete._id}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error('Failed to delete record');
-        onDataUpdate();
-      } catch (error) {
-        alert(`Error: ${error.message}`);
-      }
-    }
-  };
-
->>>>>>> 4e3453ea5e1252717719a01c9055cefb2c9c6a35
   const totalActual = teamData.months.reduce((sum, month) => sum + month.actual, 0);
   const totalAnticipated = teamData.months.reduce((sum, month) => sum + month.anticipated, 0);
   const variance = totalActual - totalAnticipated;
@@ -683,4 +667,5 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
 
 
 export default BudgetExpensePage;
+
 
