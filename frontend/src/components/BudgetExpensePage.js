@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Upload, TrendingUp, DollarSign, Edit, Trash2, PlusCircle, Save, X, Download } from 'lucide-react';
+import { Upload, TrendingUp, DollarSign, PlusCircle, Save, X, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
@@ -185,38 +185,6 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
     setAddMonthError('');
   };
 
-  const handleDateChangeForEditRecord = (dateStr) => {
-       let newMonth = editingRecordData.month;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      try {
-        const [year, monthNum, day] = dateStr.split('-').map(Number);
-        const date = new Date(year, monthNum - 1, day);
-        const monthStr = date.toLocaleString('en-US', { month: 'short' });
-        const yearStr = (year % 100).toString().padStart(2, '0');
-        newMonth = `${monthStr}-${yearStr}`;
-      } catch (e) { /* Do nothing on invalid date */ }
-    }
-    setEditingRecordData({ ...editingRecordData, Date: dateStr });
-    if (editMonthError) setEditMonthError('');
-  };
-
-  const handleDateChangeForNewRecord = (dateStr) => {
-    let newMonth = newRecord.month;
-    // Automatically populate the Year Month field if the date is valid
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      try {
-        const [year, monthNum, day] = dateStr.split('-').map(Number);
-        const date = new Date(year, monthNum - 1, day);
-        const monthStr = date.toLocaleString('en-US', { month: 'short' });
-        const yearStr = (year % 100).toString().padStart(2, '0');
-        newMonth = `${monthStr}-${yearStr}`;
-      } catch (e) {
-        // Invalid date, do nothing
-      }
-    }
-    setNewRecord({ ...newRecord, Date: dateStr });
-  };
-
   const handleAccountChange = (e, isEditing = false) => { // Renamed from handleAccountChange
     const mainAccount = e.target.value;
     const mainAccountName = accountMap.get(Number(mainAccount)) || '';
@@ -271,12 +239,6 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
     }
   };
 
-  const handleEditMonthClick = (record) => { // Pass the full record, not just index
-    setEditingMonthKey(record._id); // Use _id as the key for editing
-    setEditingRecordData({ ...record });
-    setEditMonthError('');
-  };
-
   const handleCancelEdit = () => {
     setEditingMonthKey(null);
     setEditingRecordData(null);
@@ -327,29 +289,9 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
     }
   };
   
-  const handleDeleteMonth = async (recordToDelete) => {
-    if (window.confirm(`Are you sure you want to delete this record?`)) {
-      try {
-        const response = await fetch(`https://marketingapp-backend.onrender.com/api/actuals/${recordToDelete._id}`, { method: 'DELETE' });
-        if (!response.ok) throw new Error('Failed to delete record');
-        onDataUpdate();
-      } catch (error) {
-        alert(`Error: ${error.message}`);
-      }
-    }
-  };
-
   const totalActual = teamData.months.reduce((sum, month) => sum + month.actual, 0);
   const totalAnticipated = teamData.months.reduce((sum, month) => sum + month.anticipated, 0);
   const variance = totalActual - totalAnticipated;
-
-  // Helper to get a full date from "MMM-YY"
-  const getFullDate = (monthStr) => {
-    if (!monthStr) return '';
-    const [mon, year] = monthStr.split('-');
-    const date = new Date(`${mon} 1, 20${year}`);
-    return !isNaN(date) ? date.toISOString().split('T')[0] : '';
-  };
 
   if (!teamData) {
     return (
@@ -566,7 +508,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
                         <input
                           type="date"
                           value={editingRecordData.Date ? new Date(editingRecordData.Date).toISOString().split('T')[0] : ''}
-                          onChange={(e) => handleDateChangeForEditRecord(e.target.value)}
+                         
                           placeholder="YYYY-MM-DD"
                           className="w-full px-2 py-1 border border-gray-300 rounded"
                         />
@@ -641,7 +583,6 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
                       <input
                         type="date"
                         value={newRecord.Date}
-                        onChange={(e) => { handleDateChangeForNewRecord(e.target.value); if (addMonthError) setAddMonthError(''); }}
                         placeholder="YYYY-MM-DD"
                         className="w-full px-2 py-1 border border-gray-300 rounded"
                       />

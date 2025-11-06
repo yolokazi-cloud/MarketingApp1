@@ -1,31 +1,18 @@
-import React, { useState, useMemo ,useEffect} from 'react';
-import { X, Download, Trash2, Edit, Save, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { X, Download, Trash2, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
   const [versions, setVersions] = useState([]);
   const [selectedVersion, setSelectedVersion] = useState(null);
-  const [editingRecord, setEditingRecord] = useState(null); // { index, data }
+  const [, setEditingRecord] = useState(null); // { index, data }
   const [isLoading, setIsLoading] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState(null); // Holds versionId to delete
   const [error, setError] = useState('');
 
   const title = dataType.charAt(0).toUpperCase() + dataType.slice(1);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchVersions();
-    } else {
-      // Reset state when modal is closed
-      setVersions([]);
-      setSelectedVersion(null);
-      setEditingRecord(null);
-      setDeleteConfirmation(null);
-      setError('');
-    }
-  }, [isOpen, dataType]);
-
-  const fetchVersions = async () => {
+  const fetchVersions = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -38,7 +25,20 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [dataType]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchVersions();
+    } else {
+      // Reset state when modal is closed
+      setVersions([]);
+      setSelectedVersion(null);
+      setEditingRecord(null);
+      setDeleteConfirmation(null);
+      setError('');
+    }
+  }, [isOpen, fetchVersions, setEditingRecord]);
 
   const handleViewVersion = async (versionId) => {
     // If already selected, collapse it
@@ -104,83 +104,12 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
     }
   };
 
-  const handleSaveRecord = async () => {
-    if (!selectedVersion || editingRecord === null) return;
-
-    try {
-      const response = await fetch(`https://marketingapp-backend.onrender.com/api/uploads/${dataType}/versions/${selectedVersion._id}/records/${editingRecord.index}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingRecord.data),
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.message || 'Failed to save record.');
-      }
-
-      const { record: savedRecord } = await response.json();
-
-      // Update local state to show the change immediately
-      const updatedData = [...selectedVersion.data];
-      updatedData[editingRecord.index] = savedRecord; // Use the saved record from the backend response
-      setSelectedVersion({ ...selectedVersion, data: updatedData });
-
-      setEditingRecord(null); // Exit editing mode
-    } catch (err) {
-      alert(`Error: ${err.message}`);
-    }
-  };
-  
-//   const handleEditChange = (e, key) => {
-//     setEditingRecord({
-//       ...editingRecord,
-//       data: {
-//         ...editingRecord.data,
-//         [key]: e.target.value,
-//       },
-//     });
-//   };
-
 const renderRecordRow = (record, index) => {
-  //  const isEditing = editingRecord && editingRecord.index === index;
-    
-    //if (isEditing) {
-    //  return (
-        // <tr key={`edit-${index}`} className="bg-blue-50">
-        //   {tableHeaders.map(header => (
-        //     <td key={header} className="border border-gray-200 px-2 py-1">
-        //       <input
-        //         type="text"
-        //         value={editingRecord.data[header] != null ? editingRecord.data[header] : ''}
-        //         onChange={(e) => handleEditChange(e, header)}
-        //         className="w-full px-2 py-1 border border-gray-300 rounded"
-        //       />
-        //     </td>
-        //   ))}
-        //   <td className="border border-gray-200 px-2 py-1">
-        //     <div className="flex gap-2">
-        //       <button onClick={handleSaveRecord} className="p-1 text-green-600 hover:text-green-800"><Save className="w-4 h-4" /></button>
-        //       <button onClick={() => setEditingRecord(null)} className="p-1 text-red-600 hover:text-red-800"><X className="w-4 h-4" /></button>
-        //     </div>
-        //   </td>
-        // </tr>
-//);
- //   }
-
     return (
       <tr key={`display-${index}`} className="hover:bg-gray-50">
         {tableHeaders.map(header => (
           <td key={header} className="border border-gray-200 px-2 py-1 text-sm">{String(record[header] != null ? record[header] : '')}</td>
         ))}
-      {/*   <td className="border border-gray-200 px-2 py-1">
-          <div className="flex gap-2">
-            <button 
-              onClick={() => setEditingRecord({ index, data: record })} 
-              className="p-1 text-blue-600 hover:text-blue-800" 
-              title="Upcoming feature"><Edit className="w-4 h-4" /></button>
-          </div>
-        </td>*/ }
       </tr>
     );
   };

@@ -1,5 +1,3 @@
-import dotenv from 'dotenv';
-dotenv.config();
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
@@ -20,7 +18,8 @@ app.use(cors());
 const upload = multer({ storage: multer.memoryStorage() });
 
 // --- MongoDB Connection ---
-const MONGO_URI = process.env.MONGODB_URI;
+//const MONGO_URI = "mongodb+srv://Yoli_M:yqaTQHxnucaEZF0i@marketingdatacluster.ranofpj.mongodb.net/";
+const MONGO_URI = "mongodb+srv://Yoli_M:yqaTQHxnucaEZF0i@marketingdatacluster.ranofpj.mongodb.net/";
 mongoose.connect(MONGO_URI)
   .then(() => console.log(chalk.green("✅ Successfully connected to MongoDB")))
   .catch(err => console.error(chalk.red("❌ Could not connect to MongoDB:"), err));
