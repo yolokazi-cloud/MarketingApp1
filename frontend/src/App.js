@@ -24,7 +24,7 @@ const App = () => {
       const budgetResult = await budgetResponse.json();
       setBudgetData(budgetResult);
 
-      const accountsResponse = await fetch('https://marketingapp-backend.onrender.com/api/accounts'); // Assuming an endpoint to get all accounts
+      const accountsResponse = await fetch('https://marketingapp1.onrender.com/api/accounts'); // Assuming an endpoint to get all accounts
       if (accountsResponse.ok) {
         const accountsResult = await accountsResponse.json();
         setAllAccounts(accountsResult);
