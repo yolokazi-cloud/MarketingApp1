@@ -16,7 +16,7 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
     setIsLoading(true);
     setError('');
     try {
-      const response = await fetch(`https://marketingapp-backend.onrender.com/api/uploads/${dataType}/versions`);
+      const response = await fetch(`https://marketingapp1.onrender.com/api/uploads/${dataType}/versions`);
       if (!response.ok) throw new Error('Failed to fetch versions.');
       const data = await response.json();
       setVersions(data);
@@ -51,7 +51,7 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
     setIsLoading(true);
     setError('');
     try {
-      const response = await fetch(`https://marketingapp-backend.onrender.com/api/uploads/${dataType}/versions/${versionId}`);
+      const response = await fetch(`https://marketingapp1.onrender.com/api/uploads/${dataType}/versions/${versionId}`);
       if (!response.ok) throw new Error('Failed to load version data.');
       const data = await response.json();
       setSelectedVersion(data);
@@ -64,7 +64,7 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
 
   const handleDeleteVersion = async (versionId) => {
     try {
-      const response = await fetch(`https://marketingapp-backend.onrender.com/api/uploads/${dataType}/versions/${versionId}`, {
+      const response = await fetch(`https://marketingapp1.onrender.com/api/uploads/${dataType}/versions/${versionId}`, {
         method: 'DELETE',
       });
       if (!response.ok) throw new Error('Failed to delete version.');
@@ -89,7 +89,7 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
 
       // If the data isn't already loaded (i.e., it's not the currently selected version), fetch it.
       if (!versionData) {
-        const response = await fetch(`https://marketingapp-backend.onrender.com/api/uploads/${dataType}/versions/${version._id}`);
+        const response = await fetch(`https://marketingapp1.onrender.com/api/uploads/${dataType}/versions/${version._id}`);
         if (!response.ok) throw new Error('Failed to load version data for download.');
         const fullVersion = await response.json();
         versionData = fullVersion.data;
@@ -104,6 +104,47 @@ const UploadHistoryModal = ({ isOpen, onClose, dataType, onDataUpdate }) => {
     }
   };
 
+<<<<<<< HEAD
+=======
+  const handleSaveRecord = async () => {
+    if (!selectedVersion || editingRecord === null) return;
+
+    try {
+      const response = await fetch(`https://marketingapp1.onrender.com/api/uploads/${dataType}/versions/${selectedVersion._id}/records/${editingRecord.index}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingRecord.data),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.message || 'Failed to save record.');
+      }
+
+      const { record: savedRecord } = await response.json();
+
+      // Update local state to show the change immediately
+      const updatedData = [...selectedVersion.data];
+      updatedData[editingRecord.index] = savedRecord; // Use the saved record from the backend response
+      setSelectedVersion({ ...selectedVersion, data: updatedData });
+
+      setEditingRecord(null); // Exit editing mode
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+  
+//   const handleEditChange = (e, key) => {
+//     setEditingRecord({
+//       ...editingRecord,
+//       data: {
+//         ...editingRecord.data,
+//         [key]: e.target.value,
+//       },
+//     });
+//   };
+
+>>>>>>> 4e3453ea5e1252717719a01c9055cefb2c9c6a35
 const renderRecordRow = (record, index) => {
     return (
       <tr key={`display-${index}`} className="hover:bg-gray-50">
@@ -218,3 +259,4 @@ const renderRecordRow = (record, index) => {
 };
 
 export default UploadHistoryModal;
+
