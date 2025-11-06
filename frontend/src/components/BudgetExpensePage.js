@@ -311,7 +311,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
     };
 
     try {
-      const response = await fetch(`https://marketingapp-backend.onrender.com/api/actuals/${editingMonthKey}`, {
+      const response = await fetch(`https://marketingapp1.onrender.com/api/actuals/${editingMonthKey}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(recordToSave),
@@ -330,7 +330,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
   const handleDeleteMonth = async (recordToDelete) => {
     if (window.confirm(`Are you sure you want to delete this record?`)) {
       try {
-        const response = await fetch(`https://marketingapp-backend.onrender.com/api/actuals/${recordToDelete._id}`, { method: 'DELETE' });
+        const response = await fetch(`https://marketingapp1.onrender.com/api/actuals/${recordToDelete._id}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('Failed to delete record');
         onDataUpdate();
       } catch (error) {
@@ -727,3 +727,4 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
 
 
 export default BudgetExpensePage;
+
