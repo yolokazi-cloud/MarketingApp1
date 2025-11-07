@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import BudgetOverview from './BudgetOverview';
-import BudgetExpensePage from './BudgetExpensePage';
-import logo from './Altron Logo - Light 2x.png';
+import BudgetOverview from './components/BudgetOverview';
+import BudgetExpensePage from './components/BudgetExpensePage';
+import logo from './assets/Altron Logo - Light 2x.png';
 import { Menu, X } from 'lucide-react';
 
 const App = () => {
