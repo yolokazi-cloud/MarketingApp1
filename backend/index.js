@@ -265,6 +265,7 @@ app.get("/api/budget", async (req, res) => {
             if (mainAccount != null && totalAmountForItem !== 0) {
               const accountDetails = spendTypeCategoryMap[mainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
+              const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
 
               if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
               spendTypeTotals[accountName].amount += totalAmountForItem;
@@ -300,6 +301,10 @@ app.get("/api/budget", async (req, res) => {
             const date = new Date(dateValue);
             const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
             const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
+            
+            const mainAccount = findValueByKey(item, "Main Account");
+            const spendType = spendTypeCategoryMap[mainAccount] ? spendTypeCategoryMap[mainAccount].spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+            console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
             if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
             monthlyActuals[monthKey].amount += amount;
             // The category of the last item for a given month will be used.
