@@ -265,6 +265,7 @@ app.get("/api/budget", async (req, res) => {
             if (mainAccount != null && totalAmountForItem !== 0) {
               const accountDetails = spendTypeCategoryMap[mainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
+              console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
               const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
 
               if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
