@@ -163,35 +163,13 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           {useMemo(() => {
               // This logic now correctly calculates totals based on the selected filters.
-              let totalAnticipated = 0;
-
-              // Determine which spend types to include based on filters
-              const spendTypesToSum = selectedSpendTypes.length > 0 
-                ? selectedSpendTypes 
-                : allUniqueSpendTypes;
-
-              costCenters.forEach(cc => {
+              const totalAnticipated = costCenters.reduce((total, cc) => {
                 const teamData = budgetData[cc];
-                if (!teamData) return;
+                if (!teamData || !teamData.months) return total;
+                const teamAnticipatedTotal = teamData.months.reduce((sum, month) => sum + (month.anticipated || 0), 0);
+                return total + teamAnticipatedTotal;
+              }, 0);
 
-                const people = teamData.people || [];
-                const programs = teamData.programs || [];
-
-                const filterKey = primaryFilter.toLowerCase();
-
-                // Sum amounts from the 'people' category if relevant
-                if (filterKey === 'all' || filterKey === 'people') {
-                  people.forEach(item => {
-                    if (spendTypesToSum.includes(item.name)) totalAnticipated += item.amount;
-                  });
-                }
-                // Sum amounts from the 'programs' category if relevant
-                if (filterKey === 'all' || filterKey === 'programs') {
-                  programs.forEach(item => {
-                    if (spendTypesToSum.includes(item.name)) totalAnticipated += item.amount;
-                  });
-                }
-              });
 
               // Correctly calculate totalActual by summing the 'Amount' from every row in 'actualItems' across all cost centers.
               const totalActual = costCenters.reduce((total, cc) => {
