@@ -221,12 +221,16 @@ app.get("/api/budget", async (req, res) => {
     const spendTypeCategoryMap = {};
     console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
     accountIdDocs.forEach(doc => {
-      const mainAccount = doc["Main account"];
+      const mainAccount = findValueByKey(doc, 'Main account');
 
       if (mainAccount != null) {
+        const spendType = findValueByKey(doc, 'Spend Type');
+        const mainAccountName = findValueByKey(doc, 'Main Account Name');
+        console.log(chalk.gray(`    -> Picked up: Main Account: [${mainAccount}], Name: [${mainAccountName}], Spend Type: [${spendType}]`));
+
         // Log the raw document to see all columns
         console.log(chalk.green(`  ✅ Reading AccountID Document:`), doc.toObject());
-        spendTypeCategoryMap[mainAccount] = { spendType: doc["Spend Type"], name: doc["Main Account Name"] };
+        spendTypeCategoryMap[mainAccount] = { spendType: spendType, name: mainAccountName };
       }
     });
     console.log(chalk.green("✅ Successfully created spend type category map."));
