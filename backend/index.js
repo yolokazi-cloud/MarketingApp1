@@ -220,20 +220,23 @@ app.get("/api/budget", async (req, res) => {
     //Find account IDs- Create the spend type map with detailed logging
     const spendTypeCategoryMap = {};
     console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
+    console.log(chalk.gray('  Raw AccountID documents fetched from DB:'), accountIdDocs.map(d => d.toObject()));
     accountIdDocs.forEach(doc => {
       const mainAccount = findValueByKey(doc, 'Main account');
 
       if (mainAccount != null) {
         const spendType = findValueByKey(doc, 'Spend Type');
         const mainAccountName = findValueByKey(doc, 'Main Account Name');
-        console.log(chalk.gray(`    -> Picked up: Main Account: [${mainAccount}], Name: [${mainAccountName}], Spend Type: [${spendType}]`));
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for consistency with schema
+        console.log(chalk.gray(`    -> Picked up from AccountID: Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount}), Name: [${mainAccountName}], Spend Type: [${spendType}]`));
 
         // Log the raw document to see all columns
         console.log(chalk.green(`  ✅ Reading AccountID Document:`), doc.toObject());
-        spendTypeCategoryMap[mainAccount] = { spendType: spendType, name: mainAccountName };
+        spendTypeCategoryMap[normalizedMainAccount] = { spendType: spendType, name: mainAccountName };
       }
     });
     console.log(chalk.green("✅ Successfully created spend type category map."));
+    console.log(chalk.cyan('  Final Spend Type Map:'), spendTypeCategoryMap);
 
  const finalBudgetData = {};
 
@@ -266,10 +269,13 @@ app.get("/api/budget", async (req, res) => {
             }
 
             const mainAccount = findValueByKey(item, "MainAccount");
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             if (mainAccount != null && totalAmountForItem !== 0) {
-              const accountDetails = spendTypeCategoryMap[mainAccount];
+              const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
               const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+              console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
+              console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
 
               if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
               spendTypeTotals[accountName].amount += totalAmountForItem;
@@ -307,7 +313,9 @@ app.get("/api/budget", async (req, res) => {
             const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
             
             const mainAccount = findValueByKey(item, "Main Account");
-            const spendType = spendTypeCategoryMap[mainAccount] ? spendTypeCategoryMap[mainAccount].spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
+            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
             console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
             if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
             monthlyActuals[monthKey].amount += amount;
@@ -345,8 +353,9 @@ app.get("/api/budget", async (req, res) => {
       const people = [];
       const programs = [];
       Object.entries(spendTypeTotals).forEach(([name, data]) => {
-        const { amount, mainAccount } = data;
-        const category = spendTypeCategoryMap[mainAccount] ? spendTypeCategoryMap[mainAccount].spendType : 'programs';
+        const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'programs';
         const spendItem = { name, amount, value: 0 };
         if (category === 'people') {
           people.push(spendItem);
