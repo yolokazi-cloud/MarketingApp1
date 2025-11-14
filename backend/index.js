@@ -176,6 +176,38 @@ const findAndConvertToJson = (sheet, expectedHeaders) => {
   });
 };
 
+// --- Helper: Normalize various date/month column headers to MMM-YY format ---
+const normalizeMonthKey = (key) => {
+  if (!key || typeof key !== 'string') return null;
+  const trimmedKey = key.trim();
+
+  // 1. Check for existing format: MMM-YY (e.g., 'Mar-25')
+  if (/^[A-Za-z]{3}-\d{2}$/.test(trimmedKey)) {
+    return trimmedKey.charAt(0).toUpperCase() + trimmedKey.slice(1, 4).toLowerCase() + trimmedKey.slice(4);
+  }
+
+  // 2. Check for full month and year: e.g., 'April 2025' or 'April-2025'
+  const fullMonthMatch = trimmedKey.match(/^(January|February|March|April|May|June|July|August|September|October|November|December)\s*(\d{4})$/i);
+  if (fullMonthMatch) {
+    const month = fullMonthMatch[1].slice(0, 3);
+    const year = fullMonthMatch[2].slice(2);
+    return `${month.charAt(0).toUpperCase()}${month.slice(1).toLowerCase()}-${year}`;
+  }
+
+  // 3. Check for date format: mm-dd-yyyy or m/d/yyyy etc.
+  // This regex is flexible for different separators and single/double digits.
+  const dateMatch = trimmedKey.match(/^(\d{1,2})-/-/$/);
+  if (dateMatch) {
+    const date = new Date(`${dateMatch[3]}-${dateMatch[1]}-${dateMatch[2]}`); // Use YYYY-MM-DD for reliable parsing
+    if (!isNaN(date.getTime())) {
+      return date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(' ', '-');
+    }
+  }
+
+  // If no format matches, return null
+  return null;
+};
+
 // --- Main API Endpoint ---
 app.get("/api/budget", async (req, res) => {
   try {
@@ -258,11 +290,12 @@ app.get("/api/budget", async (req, res) => {
 
             // Dynamically read all columns from the item
             for (const key in item) {
-              // Check if the key matches the month format (e.g., 'Mar-25')
-              if (/^[A-Za-z]{3}-\d{2}$/.test(key)) {
+              const monthKey = normalizeMonthKey(key);
+              // Check if the key was successfully normalized into a month format
+              if (monthKey) {
                 const amount = parseFloat(String(item[key]).replace(/,/g, '')) || 0;
                 if (amount !== 0) {
-                  monthlyAnticipated[key] = (monthlyAnticipated[key] || 0) + amount;
+                  monthlyAnticipated[monthKey] = (monthlyAnticipated[monthKey] || 0) + amount;
                   totalAmountForItem += amount;
                 }
               }
@@ -313,6 +346,7 @@ app.get("/api/budget", async (req, res) => {
             const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
             
             const mainAccount = findValueByKey(item, "Main Account");
+            console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
             const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
             const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
@@ -478,7 +512,7 @@ app.post('/api/upload/actuals', upload.single('file'), async (req, res) => {
 
     // --- Validation Logic ---
     const errors = [];
-    const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
+    //const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
 
     normalizedJsonData.forEach((row, index) => {
       const rowNum = index + 2; // Excel rows are 1-based, plus header row
@@ -629,15 +663,10 @@ app.post('/api/upload/anticipateds', upload.single('file'), async (req, res) => 
       };
       // Dynamically add month columns
       for (const key in row) {
-        // Normalize the key by removing spaces around the hyphen and trimming
-        const normalizedKey = key.trim().replace(/\s*-\s*/, '-');
-        // Check if the normalized key matches the expected 'MMM-YY' format
-        if (/^[A-Za-z]{3}-\d{2}$/.test(normalizedKey)) {
-          if (key !== normalizedKey) {
-            console.log(chalk.yellow(`  - Corrected month column spacing: "${key}" to "${normalizedKey}".`));
-          }
-          // Use the normalized key for the document, but get the value from the original key
-          doc[normalizedKey] = parseAccountingNumber(row[key]);
+        const monthKey = normalizeMonthKey(key);
+        if (monthKey) {
+          // Use the normalized month key for the document
+          doc[monthKey] = parseAccountingNumber(row[key]);
         }
       }
       return doc;
