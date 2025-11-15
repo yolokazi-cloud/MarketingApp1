@@ -198,7 +198,7 @@ app.get("/api/budget", async (req, res) => {
           as: "actualCostCenter"
         }
       },
-
+ 
       {
         $project: {
           _id: 0,
@@ -210,7 +210,7 @@ app.get("/api/budget", async (req, res) => {
       }
     ]);
      console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
-
+  
      //find account IDs -Error handling
     const accountIdDocs = await AccountID.find({});
     if (!accountIdDocs || accountIdDocs.length === 0) {
@@ -222,7 +222,6 @@ app.get("/api/budget", async (req, res) => {
     console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
     console.log(chalk.gray('  Raw AccountID documents fetched from DB:'), accountIdDocs.map(d => d.toObject()));
     accountIdDocs.forEach(doc => {
-      const mainAccount = doc["Main account"];
       const mainAccount = findValueByKey(doc, 'Main account');
 
       if (mainAccount != null) {
@@ -238,7 +237,8 @@ app.get("/api/budget", async (req, res) => {
     });
     console.log(chalk.green("✅ Successfully created spend type category map."));
     console.log(chalk.cyan('  Final Spend Type Map:'), spendTypeCategoryMap);
-    const finalBudgetData = {};
+
+ const finalBudgetData = {};
 
     budgetData.forEach(team => {
       const { costCenter, teamName, anticipatedCostCenter, actualCostCenter } = team;
@@ -247,7 +247,7 @@ app.get("/api/budget", async (req, res) => {
       // --- Anticipated Data ---
       const monthlyAnticipated = {};
       const spendTypeTotals = {};
-
+     
       if (anticipatedCostCenter && anticipatedCostCenter.length > 0) {
         anticipatedCostCenter.forEach((item, index) => {
           try {
@@ -271,11 +271,12 @@ app.get("/api/budget", async (req, res) => {
             const mainAccount = findValueByKey(item, "MainAccount");
             const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             if (mainAccount != null && totalAmountForItem !== 0) {
-                const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
+              const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
               const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
               console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
               console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
+
               if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
               spendTypeTotals[accountName].amount += totalAmountForItem;
             }
@@ -310,9 +311,9 @@ app.get("/api/budget", async (req, res) => {
             const date = new Date(dateValue);
             const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
             const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
-
+            
             const mainAccount = findValueByKey(item, "Main Account");
-            const spendType = spendTypeCategoryMap[mainAccount] ? spendTypeCategoryMap[mainAccount].spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+            console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
             const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
             const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
@@ -478,7 +479,7 @@ app.post('/api/upload/actuals', upload.single('file'), async (req, res) => {
 
     // --- Validation Logic ---
     const errors = [];
-    const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
+    //const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
 
     normalizedJsonData.forEach((row, index) => {
       const rowNum = index + 2; // Excel rows are 1-based, plus header row
@@ -558,10 +559,71 @@ app.post('/api/upload/anticipateds', upload.single('file'), async (req, res) => 
     const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
+    
+//NEW CODE TO HANDLE MONTH COLUMN VARIATIONS:
+const corrections = [];
 
-    const corrections = [];
-    const expectedAnticipatedHeaders = ['Account name', 'MainAccount', 'CostCenter', 'Mar-25', 'Apr-25', 'May-25', 'Jun-25', 'Jul-25', 'Aug-25', 'Sep-25', 'Oct-25', 'Nov-25', 'Dec-25', 'Jan-26', 'Feb-26'];
-    const jsonData = findAndConvertToJson(worksheet, expectedAnticipatedHeaders);
+const staticExpectedHeaders = [
+  'Account name',
+  'MainAccount',
+  'CostCenter'
+];
+
+// Regex for correct month pattern: Mar-25, Aug-03, etc.
+const monthRegex = /^[A-Za-z]{3}-\d{2}$/;
+
+// Check if header is a date
+function tryParseDate(header) {
+  // If Excel exported a serial date → convert it
+  if (!isNaN(header)) {
+    const excelDate = new Date((header - 25569) * 86400 * 1000);
+    if (!isNaN(excelDate.getTime())) return excelDate;
+  }
+
+  const parsed = new Date(header);
+  if (!isNaN(parsed.getTime())) return parsed;
+
+  return null;
+}
+
+// Convert Date → MMM-YY
+function formatDateToMonthCode(dateObj) {
+  const month = dateObj.toLocaleString("en-US", { month: "short" });
+  const year = String(dateObj.getFullYear()).slice(-2);
+  return `${month}-${year}`;
+}
+
+// Extract actual sheet headers
+const sheetHeaders = Object.keys(worksheet[0] || {});
+
+// Convert headers
+const convertedHeaders = sheetHeaders.map(h => {
+  const trimmed = h.trim();
+
+  // Case 1: Already valid (Mar-25, Aug-28)
+  if (monthRegex.test(trimmed)) return trimmed;
+
+  // Case 2: Try converting date headers
+  const parsedDate = tryParseDate(trimmed);
+  if (parsedDate) return formatDateToMonthCode(parsedDate);
+
+  return trimmed; // keep as is if not a date or month
+});
+
+// Filter dynamic month headers
+const dynamicMonthHeaders = convertedHeaders.filter(h => monthRegex.test(h));
+
+// Combine final expected headers
+const expectedAnticipatedHeaders = [
+  ...staticExpectedHeaders,
+  ...dynamicMonthHeaders
+];
+
+const jsonData = findAndConvertToJson(worksheet, expectedAnticipatedHeaders);
+//END OF NEW CODE TO HANDLE MONTH VARIATIONS
+
+/*  const expectedAnticipatedHeaders = ['Account name', 'MainAccount', 'CostCenter', 'Mar-25', 'Apr-25', 'May-25', 'Jun-25', 'Jul-25', 'Aug-25', 'Sep-25', 'Oct-25', 'Nov-25', 'Dec-25', 'Jan-26', 'Feb-26'];
+    const jsonData = findAndConvertToJson(worksheet, expectedAnticipatedHeaders); */
 
     // Filter out completely empty rows
     const filteredJsonData = jsonData.filter(row => 
@@ -572,7 +634,7 @@ app.post('/api/upload/anticipateds', upload.single('file'), async (req, res) => 
     if (corrections.length > 0) {
       console.log(chalk.yellow('Corrections made to headers:'), corrections);
     }
-
+    
     // --- Validation Logic ---
     const errors = [];
 
