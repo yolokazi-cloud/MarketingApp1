@@ -217,21 +217,22 @@ app.get("/api/budget", async (req, res) => {
       console.log(chalk.yellow("⚠️ No main accounts found in the AccountID collection. Spend type categorization may be incomplete."));
     }
 
-    // Create a map from the AccountID collection, similar to how CostCenterID provides names.
-    // This map will be the single source of truth for Main Account Name and Spend Type.
+    //Find account IDs- Create the spend type map with detailed logging
     const spendTypeCategoryMap = {};
     console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
+    console.log(chalk.gray('  Raw AccountID documents fetched from DB:'), accountIdDocs.map(d => d.toObject()));
     accountIdDocs.forEach(doc => {
-      const mainAccount = findValueByKey(doc.toObject(), 'Main account');
+      const mainAccount = findValueByKey(doc, 'Main account');
 
       if (mainAccount != null) {
-        const spendType = findValueByKey(doc.toObject(), 'Spend Type');
-        const mainAccountName = findValueByKey(doc.toObject(), 'Main Account Name');
-        const normalizedMainAccount = Number(mainAccount);
+        const spendType = findValueByKey(doc, 'Spend Type');
+        const mainAccountName = findValueByKey(doc, 'Main Account Name');
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for consistency with schema
+        console.log(chalk.gray(`    -> Picked up from AccountID: Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount}), Name: [${mainAccountName}], Spend Type: [${spendType}]`));
 
-        // Store the definitive name and spend type against the account number.
-        // Provide defaults for incomplete AccountID records.
-        spendTypeCategoryMap[normalizedMainAccount] = { spendType: spendType || 'programs', name: mainAccountName || 'Unnamed Account' };
+        // Log the raw document to see all columns
+        console.log(chalk.green(`  ✅ Reading AccountID Document:`), doc.toObject());
+        spendTypeCategoryMap[normalizedMainAccount] = { spendType: spendType, name: mainAccountName };
       }
     });
     console.log(chalk.green("✅ Successfully created spend type category map."));
@@ -270,11 +271,11 @@ app.get("/api/budget", async (req, res) => {
             const mainAccount = findValueByKey(item, "MainAccount");
             const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             if (mainAccount != null && totalAmountForItem !== 0) {
-              // Strictly use the map for both account name and spend type.
-              const accountDetails = spendTypeCategoryMap[normalizedMainAccount] || { name: `Unmapped Account (${mainAccount})`, spendType: 'programs' };
-              const accountName = accountDetails.name;
+              const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
+              const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
+              const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
               console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
-              console.log(chalk.yellow(`    Found Details: Name: [${accountName}], Spend Type: [${accountDetails.spendType}]`));
+              console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
 
               if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
               spendTypeTotals[accountName].amount += totalAmountForItem;
@@ -314,9 +315,9 @@ app.get("/api/budget", async (req, res) => {
             const mainAccount = findValueByKey(item, "Main Account");
             console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
             const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
-            const accountDetails = spendTypeCategoryMap[normalizedMainAccount] || { spendType: 'programs' };
-            const spendType = accountDetails.spendType;
-            console.log(chalk.magenta(`    Found Spend Type for actual item: [${spendType}]`));
+            console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
+            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
+            console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
             if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
             monthlyActuals[monthKey].amount += amount;
             // The category of the last item for a given month will be used.
@@ -355,8 +356,7 @@ app.get("/api/budget", async (req, res) => {
       Object.entries(spendTypeTotals).forEach(([name, data]) => {
         const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
         const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
-        // Use the map to determine the final category ('people' or 'programs')
-        const category = (spendTypeCategoryMap[normalizedMainAccount] || { spendType: 'programs' }).spendType;
+        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'programs';
         const spendItem = { name, amount, value: 0 };
         if (category === 'people') {
           people.push(spendItem);
@@ -852,3 +852,4 @@ app.delete('/api/uploads/:dataType/versions/:id', async (req, res) => {
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(chalk.magenta(`🚀 Server running at http://localhost:${port}`)));
+
