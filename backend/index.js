@@ -179,73 +179,67 @@ const findAndConvertToJson = (sheet, expectedHeaders) => {
 // --- Main API Endpoint ---
 app.get("/api/budget", async (req, res) => {
   
-  try {
-  console.log(chalk.blue("🔹 API: /api/budget endpoint hit. Starting cost center data aggregation..."));
+  try {  
+    console.log(chalk.blue("🔹 API: /api/budget endpoint hit. Starting cost center data aggregation..."));
+    const budgetData = await CostCenterID.aggregate([
+      {
+        $lookup: {
+          from: Anticipated.collection.name,
+          localField: "costCenter",
+          foreignField: "CostCenter",
+          as: "anticipatedCostCenter"
+        }
+      },
+      {
+        $lookup: {
+          from: Actual.collection.name,
+          localField: "costCenter",
+          foreignField: "Cost Center",
+          as: "actualCostCenter"
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          costCenter: "$costCenter",
+          teamName: "$costCenterName",
+          anticipatedCostCenter: 1,
+          actualCostCenter: 1
+        }
+      }
+    ]);
   
-  const budgetData = await CostCenterID.aggregate([
-    {
-      $lookup: {
-        from: Anticipated.collection.name,
-        localField: "costCenter",
-        foreignField: "CostCenter",
-        as: "anticipatedCostCenter"
+    console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
+   
+    console.log(chalk.blue("🔹 Starting main account data aggregation..."));
+   
+    const accountData = await AccountID.aggregate([
+      {
+        $lookup: {
+          from: Anticipated.collection.name,
+          localField: "Main account",
+          foreignField: "Main account",
+          as: "anticipatedMainAccount"
+        }
+      },
+      {
+        $lookup: {
+          from: Actual.collection.name,
+          localField: "Main account",
+          foreignField: "Main account",
+          as: "actualMainAccount"
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          mainAccount: "$Main account",
+          mainAccountName: "$Main Account Name",
+          spendType: "$Spend Type"
+        }
       }
-    },
-    {
-      $lookup: {
-        from: Actual.collection.name,
-        localField: "costCenter",
-        foreignField: "Cost Center",
-        as: "actualCostCenter"
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        costCenter: "$costCenter",
-        teamName: "$costCenterName",
-        anticipatedCostCenter: 1,
-        actualCostCenter: 1
-      }
-    }
-  ]);
-  
-  console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
- 
-  console.log(chalk.blue("🔹 Starting main account data aggregation..."));
- 
-  const accountData = await AccountID.aggregate([
-    {
-      $lookup: {
-        from: Anticipated.collection.name,
-        localField: "Main account",
-        foreignField: "Main account",
-        as: "anticipatedMainAccount"
-      }
-    },
-    {
-      $lookup: {
-        from: Actual.collection.name,
-        localField: "Main account",
-        foreignField: "Main account",
-        as: "actualMainAccount"
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        mainAccount: "$Main account",
-        mainAccountName: "$Main Account Name",
-        spendType: "$Spend Type",
-        anticipatedMainAccount: 1,
-        actualMainAccount: 1
-      }
-    }
-  ]);
- 
-  console.log(chalk.green(`✅ Aggregation complete. Found data for ${accountData.length} main accounts.`));
- 
-  // Create a map for quick account lookups by main account number
+    ]);
+   
   const accountMap = {};
   accountData.forEach(account => {
     if (account.mainAccount) {
@@ -255,13 +249,13 @@ app.get("/api/budget", async (req, res) => {
       };
     }
   });
- 
+   
   const finalBudgetData = {};
- 
+   
   budgetData.forEach(team => {
     const { costCenter, teamName, anticipatedCostCenter, actualCostCenter } = team;
     console.log(chalk.blue(`\n🔹 --- Processing Cost Center: ${teamName} (${costCenter}) ---`));
- 
+   
     // --- Anticipated Data ---
     const monthlyAnticipated = {};
     const spendTypeTotals = {};
@@ -314,11 +308,11 @@ app.get("/api/budget", async (req, res) => {
       console.log(chalk.yellow("⚠️ No anticipated items found for this cost center."));
     }
     console.log(chalk.green("✅ Finished processing anticipated data."), monthlyAnticipated);
- 
+   
     // --- Actual Data ---
     const monthlyActuals = {};
     console.log(chalk.cyan(`📦 Found ${actualCostCenter?.length || 0} actual items.`));
- 
+   
     if (actualCostCenter && actualCostCenter.length > 0) {
       actualCostCenter.forEach((item, index) => {
         try {
@@ -364,67 +358,50 @@ app.get("/api/budget", async (req, res) => {
       console.log(chalk.yellow("⚠️ No actual items found for this cost center."));
     }
     console.log(chalk.green("✅ Finished processing actual data."), monthlyActuals);
- 
-    // Store the processed data for this cost center
-    finalBudgetData[costCenter] = {
-      teamName,
-      monthlyAnticipated,
-      spendTypeTotals,
-      monthlyActuals
-    };
-  });
- 
-  console.log(chalk.green("✅ All budget data processing complete."));
-  
-  // Return or use finalBudgetData as needed
-  // res.json(finalBudgetData);
- 
-} catch (error) {
-  console.error(chalk.red(`❌ Error in budget aggregation: ${error.message}`));
-  // res.status(500).json({ error: error.message });
-}
- 
-
-      // Combine all data
-      // Dynamically create a unique list of months from both anticipated and actual data
-      const allMonthKeys = new Set([
-        ...Object.keys(monthlyAnticipated),
-        ...Object.keys(monthlyActuals).map(k => k.charAt(0).toUpperCase() + k.slice(1)) // Normalize to Title-Case
-      ]);
-      const monthsData = Array.from(allMonthKeys).map(monthStr => {
-        const actualDataForMonth = monthlyActuals[monthStr.toLowerCase()] || { amount: 0, category: 'General' };
-        const anticipatedAmount = monthlyAnticipated[monthStr] || 0;
-        return {
-          month: monthStr,
-          actual: actualDataForMonth.amount,
-          anticipated: anticipatedAmount,
-          category: actualDataForMonth.category
-        };
-      });
-
-      // Categorize spend types dynamically
-      const spendData = {};
-      Object.entries(spendTypeTotals).forEach(([name, data]) => {
-        const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
-        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
-        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'Uncategorized';
-        const spendItem = { name, amount, value: 0 };
-        if (!spendData[category]) {
-          spendData[category] = [];
-        }
-        spendData[category].push(spendItem);
-      });
-
-      finalBudgetData[costCenter] = {
-        teamName,
-        spendData, // Replaces 'people' and 'programs'
-        months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
-        actualItems: actualCostCenter // Pass raw actual items to the frontend
+   
+    // Combine all data
+    const allMonthKeys = new Set([
+      ...Object.keys(monthlyAnticipated),
+      ...Object.keys(monthlyActuals).map(k => k.charAt(0).toUpperCase() + k.slice(1)) // Normalize to Title-Case
+    ]);
+    const monthsData = Array.from(allMonthKeys).map(monthStr => {
+      const actualDataForMonth = monthlyActuals[monthStr.toLowerCase()] || { amount: 0, category: 'General' };
+      const anticipatedAmount = monthlyAnticipated[monthStr] || 0;
+      return {
+        month: monthStr,
+        actual: actualDataForMonth.amount,
+        anticipated: anticipatedAmount,
+        category: actualDataForMonth.category
       };
     });
 
+    // Categorize spend types dynamically
+    const spendData = {};
+    Object.entries(spendTypeTotals).forEach(([name, data]) => {
+      const { amount, mainAccount, spendType } = data;
+      const category = spendType || 'Uncategorized';
+      const spendItem = { name, amount, mainAccount };
+      if (!spendData[category]) {
+        spendData[category] = [];
+      }
+      spendData[category].push(spendItem);
+    });
+
+    finalBudgetData[costCenter] = {
+      teamName,
+      spendData, // Replaces 'people' and 'programs'
+      months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
+      actualItems: actualCostCenter // Pass raw actual items to the frontend
+    };
+  });
+  
     console.log(chalk.green("✅ Successfully processed all data. Sending response to client."));
     res.json(finalBudgetData);
+  } catch (error) {
+    console.error(chalk.red(`❌ Error in budget aggregation: ${error.message}`));
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // --- CRUD Endpoints for Actual Records ---
 
