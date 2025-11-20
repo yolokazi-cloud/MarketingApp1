@@ -178,26 +178,27 @@ const findAndConvertToJson = (sheet, expectedHeaders) => {
 
 // --- Main API Endpoint ---
 app.get("/api/budget", async (req, res) => {
-  
-  try {  
-    console.log(chalk.blue("🔹 API: /api/budget endpoint hit. Starting cost center data aggregation..."));
+  try {
+    console.log(chalk.blue("🔹 API: /api/budget endpoint hit. Starting data aggregation..."));
+
     const budgetData = await CostCenterID.aggregate([
       {
         $lookup: {
           from: Anticipated.collection.name,
           localField: "costCenter",
-          foreignField: "CostCenter",
+          foreignField: "CostCenter", // This is the correct field for joining
           as: "anticipatedCostCenter"
         }
       },
       {
         $lookup: {
           from: Actual.collection.name,
-          localField: "costCenter",
-          foreignField: "Cost Center",
+          localField: "costCenter", // This is the correct field for joining
+          foreignField: "Cost Center", 
           as: "actualCostCenter"
         }
       },
+ 
       {
         $project: {
           _id: 0,
@@ -208,198 +209,179 @@ app.get("/api/budget", async (req, res) => {
         }
       }
     ]);
+     console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
   
-    console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
-   
-    console.log(chalk.blue("🔹 Starting main account data aggregation..."));
-   
-    const accountData = await AccountID.aggregate([
-      {
-        $lookup: {
-          from: Anticipated.collection.name,
-          localField: "Main account",
-          foreignField: "Main account",
-          as: "anticipatedMainAccount"
-        }
-      },
-      {
-        $lookup: {
-          from: Actual.collection.name,
-          localField: "Main account",
-          foreignField: "Main account",
-          as: "actualMainAccount"
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          mainAccount: "$Main account",
-          mainAccountName: "$Main Account Name",
-          spendType: "$Spend Type"
-        }
-      }
-    ]);
-   
-  const accountMap = {};
-  accountData.forEach(account => {
-    if (account.mainAccount) {
-      accountMap[String(account.mainAccount).trim()] = {
-        mainAccountName: account.mainAccountName,
-        spendType: account.spendType
-      };
+     //find account IDs -Error handling
+    const accountIdDocs = await AccountID.find({});
+    if (!accountIdDocs || accountIdDocs.length === 0) {
+      console.log(chalk.yellow("⚠️ No main accounts found in the AccountID collection. Spend type categorization may be incomplete."));
     }
-  });
-   
-  const finalBudgetData = {};
-   
-  budgetData.forEach(team => {
-    const { costCenter, teamName, anticipatedCostCenter, actualCostCenter } = team;
-    console.log(chalk.blue(`\n🔹 --- Processing Cost Center: ${teamName} (${costCenter}) ---`));
-   
-    // --- Anticipated Data ---
-    const monthlyAnticipated = {};
-    const spendTypeTotals = {};
- 
-    if (anticipatedCostCenter && anticipatedCostCenter.length > 0) {
-      anticipatedCostCenter.forEach((item, index) => {
-        try {
-          console.log(chalk.yellow(` ➡️ Reading Anticipated Item [${index}]:`), item);
- 
-          let totalAmountForItem = 0;
- 
-          // Dynamically read all columns from the item
-          for (const key in item) {
-            // Check if the key matches the month format (e.g., 'Mar-25')
-            if (/^[A-Za-z]{3}-\d{2}$/.test(key)) {
-              const amount = parseFloat(String(item[key]).replace(/,/g, '')) || 0;
-              if (amount !== 0) {
-                monthlyAnticipated[key] = (monthlyAnticipated[key] || 0) + amount;
-                totalAmountForItem += amount;
+
+    //Find account IDs- Create the spend type map with detailed logging
+    const spendTypeCategoryMap = {};
+    console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
+    console.log(chalk.gray('  Raw AccountID documents fetched from DB:'), accountIdDocs.map(d => d.toObject()));
+    accountIdDocs.forEach(doc => {
+      const mainAccount = findValueByKey(doc, 'Main account');
+
+      if (mainAccount != null) {
+        const spendType = findValueByKey(doc, 'Spend Type');
+        const mainAccountName = findValueByKey(doc, 'Main Account Name');
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for consistency with schema
+        console.log(chalk.gray(`    -> Picked up from AccountID: Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount}), Name: [${mainAccountName}], Spend Type: [${spendType}]`));
+
+        // Log the raw document to see all columns
+        console.log(chalk.green(`  ✅ Reading AccountID Document:`), doc.toObject());
+        spendTypeCategoryMap[normalizedMainAccount] = { spendType: spendType, name: mainAccountName };
+      }
+    });
+    console.log(chalk.green("✅ Successfully created spend type category map."));
+    console.log(chalk.cyan('  Final Spend Type Map:'), spendTypeCategoryMap);
+
+ const finalBudgetData = {};
+
+    budgetData.forEach(team => {
+      const { costCenter, teamName, anticipatedCostCenter, actualCostCenter } = team;
+      console.log(chalk.blue(`\n🔹 --- Processing Cost Center: ${teamName} (${costCenter}) ---`));
+
+      // --- Anticipated Data ---
+      const monthlyAnticipated = {};
+      const spendTypeTotals = {};
+     
+      if (anticipatedCostCenter && anticipatedCostCenter.length > 0) {
+        anticipatedCostCenter.forEach((item, index) => {
+          try {
+            // Log the raw anticipated item to see all columns
+            console.log(chalk.yellow(`  ➡️  Reading Anticipated Item [${index}]:`), item);
+
+            let totalAmountForItem = 0;
+
+            // Dynamically read all columns from the item
+            for (const key in item) {
+              // Check if the key matches the month format (e.g., 'Mar-25')
+              if (/^[A-Za-z]{3}-\d{2}$/.test(key)) {
+                const amount = parseFloat(String(item[key]).replace(/,/g, '')) || 0;
+                if (amount !== 0) {
+                  monthlyAnticipated[key] = (monthlyAnticipated[key] || 0) + amount;
+                  totalAmountForItem += amount;
+                }
               }
             }
-          }
- 
-          const mainAccount = findValueByKey(item, "Main account") || findValueByKey(item, "MainAccount");
-          const normalizedMainAccount = String(mainAccount).trim();
- 
-          if (mainAccount != null && totalAmountForItem !== 0) {
-            // Look up account details from the accountMap
-            const accountDetails = accountMap[normalizedMainAccount];
-            const accountName = accountDetails ? accountDetails.mainAccountName : (findValueByKey(item, "Account name") || "Unknown Account");
-            const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND';
- 
-            console.log(chalk.yellow(` Looking up Main Account: [${normalizedMainAccount}]`));
-            console.log(chalk.yellow(` Account Name: ${accountName}, Spend Type: ${spendType}`));
- 
-            if (!spendTypeTotals[accountName]) {
-              spendTypeTotals[accountName] = { 
-                amount: 0, 
-                mainAccount: mainAccount,
-                spendType: spendType 
-              };
+
+            const mainAccount = findValueByKey(item, "MainAccount");
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            if (mainAccount != null && totalAmountForItem !== 0) {
+              const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
+              const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
+              const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+              console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
+              console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
+
+              if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
+              spendTypeTotals[accountName].amount += totalAmountForItem;
             }
-            spendTypeTotals[accountName].amount += totalAmountForItem;
+
+          } catch (e) {
+            console.error(chalk.red(`❌ Error processing anticipated item [${index}] for Cost Center ${costCenter}: ${e.message}`));
           }
-        } catch (e) {
-          console.error(chalk.red(`❌ Error processing anticipated item [${index}] for Cost Center ${costCenter}: ${e.message}`));
+        });
+      } else {
+        console.log(chalk.yellow("⚠️ No anticipated items found for this cost center."));
+      }
+
+      console.log(chalk.green("✅ Finished processing anticipated data."), monthlyAnticipated);
+
+      // --- Actual Data ---
+      const monthlyActuals = {};
+      console.log(chalk.cyan(`📦 Found ${actualCostCenter?.length || 0} actual items.`));
+
+      if (actualCostCenter && actualCostCenter.length > 0) {
+        actualCostCenter.forEach((item, index) => {
+          try {
+            // Log the raw actual item to see all columns
+            console.log(chalk.magenta(`  ➡️  Reading Actual Item [${index}]:`), item);
+
+            const dateValue = findValueByKey(item, 'Date');
+            const amountValue = findValueByKey(item, 'Amount');
+            const categoryValue = findValueByKey(item, 'Category') || 'General'; // Default if category is missing
+
+            if (!dateValue || amountValue == null) return;
+
+            // Perform date and amount conversion in JavaScript
+            const date = new Date(dateValue);
+            const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
+            const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
+            
+            const mainAccount = findValueByKey(item, "Main Account");
+            console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
+            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
+            console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
+            if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
+            monthlyActuals[monthKey].amount += amount;
+            // The category of the last item for a given month will be used.
+            monthlyActuals[monthKey].category = categoryValue;
+
+          } catch (e) {
+            console.error(chalk.red(`❌ Error processing actual item [${index}] for Cost Center ${costCenter}: ${e.message}`));
+          }
+        });
+      } else {
+        console.log(chalk.yellow("⚠️ No actual items found for this cost center."));
+      }
+
+      console.log(chalk.green("✅ Finished processing actual data."), monthlyActuals);
+
+      // Combine all data
+      // Dynamically create a unique list of months from both anticipated and actual data
+      const allMonthKeys = new Set([
+        ...Object.keys(monthlyAnticipated),
+        ...Object.keys(monthlyActuals).map(k => k.charAt(0).toUpperCase() + k.slice(1)) // Normalize to Title-Case
+      ]);
+      const monthsData = Array.from(allMonthKeys).map(monthStr => {
+        const actualDataForMonth = monthlyActuals[monthStr.toLowerCase()] || { amount: 0, category: 'General' };
+        const anticipatedAmount = monthlyAnticipated[monthStr] || 0;
+        return {
+          month: monthStr,
+          actual: actualDataForMonth.amount,
+          anticipated: anticipatedAmount,
+          category: actualDataForMonth.category
+        };
+      });
+
+      // Categorize spend types
+      const people = [];
+      const programs = [];
+      Object.entries(spendTypeTotals).forEach(([name, data]) => {
+        const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'programs';
+        const spendItem = { name, amount, value: 0 };
+        if (category === 'people') {
+          people.push(spendItem);
+        } else {
+          programs.push(spendItem);
         }
       });
-    } else {
-      console.log(chalk.yellow("⚠️ No anticipated items found for this cost center."));
-    }
-    console.log(chalk.green("✅ Finished processing anticipated data."), monthlyAnticipated);
-   
-    // --- Actual Data ---
-    const monthlyActuals = {};
-    console.log(chalk.cyan(`📦 Found ${actualCostCenter?.length || 0} actual items.`));
-   
-    if (actualCostCenter && actualCostCenter.length > 0) {
-      actualCostCenter.forEach((item, index) => {
-        try {
-          console.log(chalk.magenta(` ➡️ Reading Actual Item [${index}]:`), item);
- 
-          const dateValue = findValueByKey(item, 'Date');
-          const amountValue = findValueByKey(item, 'Amount');
-          const categoryValue = findValueByKey(item, 'Category') || 'General';
- 
-          if (!dateValue || amountValue == null) return;
- 
-          const date = new Date(dateValue);
-          const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
-          const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-");
- 
-          const mainAccount = findValueByKey(item, "Main Account") || findValueByKey(item, "Main account");
-          const normalizedMainAccount = String(mainAccount).trim();
- 
-          console.log(chalk.magenta(` Extracted Main Account: [${normalizedMainAccount}]`));
- 
-          // Look up account details from the accountMap
-          const accountDetails = accountMap[normalizedMainAccount];
-          const accountName = accountDetails ? accountDetails.mainAccountName : "Unknown Account";
-          const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND';
- 
-          console.log(chalk.magenta(` Account Name: ${accountName}, Spend Type: ${spendType}`));
- 
-          if (!monthlyActuals[monthKey]) {
-            monthlyActuals[monthKey] = { 
-              amount: 0, 
-              category: categoryValue,
-              accountName: accountName,
-              spendType: spendType
-            };
-          }
-          monthlyActuals[monthKey].amount += amount;
-          monthlyActuals[monthKey].category = categoryValue;
-        } catch (e) {
-          console.error(chalk.red(`❌ Error processing actual item [${index}] for Cost Center ${costCenter}: ${e.message}`));
-        }
-      });
-    } else {
-      console.log(chalk.yellow("⚠️ No actual items found for this cost center."));
-    }
-    console.log(chalk.green("✅ Finished processing actual data."), monthlyActuals);
-   
-    // Combine all data
-    const allMonthKeys = new Set([
-      ...Object.keys(monthlyAnticipated),
-      ...Object.keys(monthlyActuals).map(k => k.charAt(0).toUpperCase() + k.slice(1)) // Normalize to Title-Case
-    ]);
-    const monthsData = Array.from(allMonthKeys).map(monthStr => {
-      const actualDataForMonth = monthlyActuals[monthStr.toLowerCase()] || { amount: 0, category: 'General' };
-      const anticipatedAmount = monthlyAnticipated[monthStr] || 0;
-      return {
-        month: monthStr,
-        actual: actualDataForMonth.amount,
-        anticipated: anticipatedAmount,
-        category: actualDataForMonth.category
+
+      finalBudgetData[costCenter] = {
+        teamName,
+        people,
+        programs,
+        months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
+        actualItems: actualCostCenter // Pass raw actual items to the frontend
       };
     });
 
-    // Categorize spend types dynamically
-    const spendData = {};
-    Object.entries(spendTypeTotals).forEach(([name, data]) => {
-      const { amount, mainAccount, spendType } = data;
-      const category = spendType || 'Uncategorized';
-      const spendItem = { name, amount, mainAccount };
-      if (!spendData[category]) {
-        spendData[category] = [];
-      }
-      spendData[category].push(spendItem);
-    });
-
-    finalBudgetData[costCenter] = {
-      teamName,
-      spendData, // Replaces 'people' and 'programs'
-      months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
-      actualItems: actualCostCenter // Pass raw actual items to the frontend
-    };
-  });
-  
     console.log(chalk.green("✅ Successfully processed all data. Sending response to client."));
     res.json(finalBudgetData);
+
+
+
   } catch (error) {
-    console.error(chalk.red(`❌ Error in budget aggregation: ${error.message}`));
-    res.status(500).json({ error: error.message });
+    console.error(chalk.red("❌ Fatal Error in /api/budget endpoint:"), error);
+    res.status(500).json({ error: "An unexpected error occurred on the server.", details: error.message });
   }
 });
 
@@ -497,6 +479,7 @@ app.post('/api/upload/actuals', upload.single('file'), async (req, res) => {
 
     // --- Validation Logic ---
     const errors = [];
+ 
     //const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
 
     normalizedJsonData.forEach((row, index) => {
@@ -870,3 +853,4 @@ app.delete('/api/uploads/:dataType/versions/:id', async (req, res) => {
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(chalk.magenta(`🚀 Server running at http://localhost:${port}`)));
+
