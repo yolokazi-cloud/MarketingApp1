@@ -227,7 +227,7 @@ app.get("/api/budget", async (req, res) => {
       if (mainAccount != null) {
         const spendType = findValueByKey(doc, 'Spend Type');
         const mainAccountName = findValueByKey(doc, 'Main Account Name');
-        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for consistency with schema
+        const normalizedMainAccount = String(mainAccount).trim(); // Use string for keys
         console.log(chalk.gray(`    -> Picked up from AccountID: Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount}), Name: [${mainAccountName}], Spend Type: [${spendType}]`));
 
         // Log the raw document to see all columns
@@ -269,15 +269,19 @@ app.get("/api/budget", async (req, res) => {
             }
 
             const mainAccount = findValueByKey(item, "MainAccount");
-            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            const normalizedMainAccount = String(mainAccount).trim(); // Use string for lookup
             if (mainAccount != null && totalAmountForItem !== 0) {
               const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
-              const spendType = accountDetails ? accountDetails.spendType : 'SPEND TYPE NOT FOUND'; // Default if not found
+              const spendType = accountDetails ? accountDetails.spendType : 'other'; // Default if not found
               console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
               console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
-
-              if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
+ 
+              if (!spendTypeTotals[accountName]) {
+                spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount, spendType: spendType };
+              } else if (!spendTypeTotals[accountName].spendType) {
+                spendTypeTotals[accountName].spendType = spendType;
+              }
               spendTypeTotals[accountName].amount += totalAmountForItem;
             }
 
@@ -310,15 +314,19 @@ app.get("/api/budget", async (req, res) => {
             // Perform date and amount conversion in JavaScript
             const date = new Date(dateValue);
             const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
-            const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
+            const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-");
             
             const mainAccount = findValueByKey(item, "Main Account");
             console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
-            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            const normalizedMainAccount = String(mainAccount).trim(); // Use string for lookup to match the map keys
             console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
-            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
+            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'other';
+            
+            // Add spendType directly to the item so frontend can access it
+            item.spendType = spendType;
+
             console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
-            if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
+            if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue, spendType: spendType };
             monthlyActuals[monthKey].amount += amount;
             // The category of the last item for a given month will be used.
             monthlyActuals[monthKey].category = categoryValue;
@@ -350,25 +358,21 @@ app.get("/api/budget", async (req, res) => {
         };
       });
 
-      // Categorize spend types
-      const people = [];
-      const programs = [];
+      // Categorize spend types dynamically
+      const spendData = {};
       Object.entries(spendTypeTotals).forEach(([name, data]) => {
-        const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
-        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
-        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'programs';
-        const spendItem = { name, amount, value: 0 };
-        if (category === 'people') {
-          people.push(spendItem);
-        } else {
-          programs.push(spendItem);
+        const { amount, mainAccount, spendType } = data;
+        const category = (spendType || 'other').toLowerCase();
+        const spendItem = { name, amount, mainAccount };
+        if (!spendData[category]) {
+          spendData[category] = [];
         }
+        spendData[category].push(spendItem);
       });
 
       finalBudgetData[costCenter] = {
         teamName,
-        people,
-        programs,
+        spendData,
         months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
         actualItems: actualCostCenter // Pass raw actual items to the frontend
       };
@@ -853,4 +857,3 @@ app.delete('/api/uploads/:dataType/versions/:id', async (req, res) => {
 
 const port = process.env.PORT || 3001;
 app.listen(port, () => console.log(chalk.magenta(`🚀 Server running at http://localhost:${port}`)));
-
