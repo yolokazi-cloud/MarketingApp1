@@ -176,6 +176,36 @@ const findAndConvertToJson = (sheet, expectedHeaders) => {
   });
 };
 
+// Hardcoded mapping for Main Accounts to Spend Types and Names as per the latest request
+const spendTypeCategoryMap = {
+  '730007': { spendType: 'Agencies and consulting services', name: 'Exp Consultancy Other' },
+  '722014': { spendType: 'Content creation', name: 'Exp Content Creation' },
+  '722008': { spendType: 'Events and sponsorships', name: 'Exp Customer Events' },
+  '722002': { spendType: 'Events and sponsorships', name: 'Exp Corporate Events' },
+  '722007': { spendType: 'Events and sponsorships', name: 'Exp Conferences and Seminars' },
+  '710013': { spendType: 'Events and sponsorships', name: 'Exp Sponsorships' },
+  '722012': { spendType: 'Marketing tech and software', name: 'Exp Website Maintenance' },
+  '752001': { spendType: 'Marketing tech and software', name: 'Exp Licences Other' },
+  '790001': { spendType: 'Marketing tech and software', name: 'Exp ICT Costs' },
+  '722011': { spendType: 'Paid media', name: 'Exp Paid Media' },
+  '722006': { spendType: 'Production of physical branding', name: 'Exp Catalogues, Promotions and Samples' },
+  '710010': { spendType: 'People', name: 'Exp Salaries Permanent' },
+  '710250': { spendType: 'People', name: 'Exp Group Altron Pension Fund' },
+  '710291': { spendType: 'People', name: 'Exp Company Contribution UIF' },
+  '710292': { spendType: 'People', name: 'Exp Company Contribution Workmens Compensation' },
+  '710295': { spendType: 'People', name: 'Exp Company Contribution Other' },
+  '784010': { spendType: 'People', name: 'Exp SDL Levy' },
+  '792004': { spendType: 'People', name: 'Exp Travelling Local' },
+  '766001': { spendType: 'People', name: 'Exp General Expenses' },
+  '792001': { spendType: 'People', name: 'Exp Entertainment' },
+  '722005': { spendType: 'People', name: 'Exp Gifts and Flowers' },
+  '784013': { spendType: 'People', name: 'Exp Non HDI Training Costs' },
+  '710060': { spendType: 'People', name: 'Exp Leave Pay' },
+  '743080': { spendType: 'Cross charges', name: 'Exp AGS Internal' },
+  '743070': { spendType: 'Cross charges', name: 'Exp AGS Marketing' },
+};
+
+
 // --- Main API Endpoint ---
 app.get("/api/budget", async (req, res) => {
   try {
@@ -210,35 +240,8 @@ app.get("/api/budget", async (req, res) => {
       }
     ]);
      console.log(chalk.green(`✅ Aggregation complete. Found data for ${budgetData.length} cost centers.`));
-  
-     //find account IDs -Error handling
-    const accountIdDocs = await AccountID.find({});
-    if (!accountIdDocs || accountIdDocs.length === 0) {
-      console.log(chalk.yellow("⚠️ No main accounts found in the AccountID collection. Spend type categorization may be incomplete."));
-    }
 
-    //Find account IDs- Create the spend type map with detailed logging
-    const spendTypeCategoryMap = {};
-    console.log(chalk.cyan(`\n🔹 --- Processing ${accountIdDocs.length} Account IDs ---`));
-    console.log(chalk.gray('  Raw AccountID documents fetched from DB:'), accountIdDocs.map(d => d.toObject()));
-    accountIdDocs.forEach(doc => {
-      const mainAccount = findValueByKey(doc, 'Main account');
-
-      if (mainAccount != null) {
-        const spendType = findValueByKey(doc, 'Spend Type');
-        const mainAccountName = findValueByKey(doc, 'Main Account Name');
-        const normalizedMainAccount = String(mainAccount).trim(); // Use string for keys
-        console.log(chalk.gray(`    -> Picked up from AccountID: Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount}), Name: [${mainAccountName}], Spend Type: [${spendType}]`));
-
-        // Log the raw document to see all columns
-        console.log(chalk.green(`  ✅ Reading AccountID Document:`), doc.toObject());
-        spendTypeCategoryMap[normalizedMainAccount] = { spendType: spendType, name: mainAccountName };
-      }
-    });
-    console.log(chalk.green("✅ Successfully created spend type category map."));
-    console.log(chalk.cyan('  Final Spend Type Map:'), spendTypeCategoryMap);
-
- const finalBudgetData = {};
+    const finalBudgetData = {};
 
     budgetData.forEach(team => {
       const { costCenter, teamName, anticipatedCostCenter, actualCostCenter } = team;
@@ -269,19 +272,15 @@ app.get("/api/budget", async (req, res) => {
             }
 
             const mainAccount = findValueByKey(item, "MainAccount");
-            const normalizedMainAccount = String(mainAccount).trim(); // Use string for lookup
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
             if (mainAccount != null && totalAmountForItem !== 0) {
               const accountDetails = spendTypeCategoryMap[normalizedMainAccount];
               const accountName = accountDetails ? accountDetails.name : findValueByKey(item, "Account name");
-              const spendType = accountDetails ? accountDetails.spendType : 'other'; // Default if not found
+              const spendType = accountDetails ? accountDetails.spendType : 'Uncategorized'; // Default if not found
               console.log(chalk.yellow(`    Looking up spend type for anticipated item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
               console.log(chalk.yellow(`    Spend Type for anticipated item: ${spendType}`));
- 
-              if (!spendTypeTotals[accountName]) {
-                spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount, spendType: spendType };
-              } else if (!spendTypeTotals[accountName].spendType) {
-                spendTypeTotals[accountName].spendType = spendType;
-              }
+
+              if (!spendTypeTotals[accountName]) spendTypeTotals[accountName] = { amount: 0, mainAccount: mainAccount };
               spendTypeTotals[accountName].amount += totalAmountForItem;
             }
 
@@ -314,19 +313,15 @@ app.get("/api/budget", async (req, res) => {
             // Perform date and amount conversion in JavaScript
             const date = new Date(dateValue);
             const amount = parseFloat(String(amountValue).replace(/,/g, '')) || 0;
-            const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-");
+            const monthKey = date.toLocaleString('en-US', { month: 'short', year: '2-digit' }).replace(" ", "-").toLowerCase();
             
             const mainAccount = findValueByKey(item, "Main Account");
             console.log(chalk.magenta(`    Extracted Main Account for lookup: [${mainAccount}] (type: ${typeof mainAccount})`)); // Added Logging
-            const normalizedMainAccount = String(mainAccount).trim(); // Use string for lookup to match the map keys
-            console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`));
-            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'other';
-            
-            // Add spendType directly to the item so frontend can access it
-            item.spendType = spendType;
-
+            const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+            console.log(chalk.magenta(`    Looking up spend type for actual item Main Account: [${normalizedMainAccount}] (type: ${typeof normalizedMainAccount})`)); // Ensure string for lookup
+            const spendType = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'SPEND TYPE NOT FOUND';
             console.log(chalk.magenta(`    Spend Type for actual item: ${spendType}`));
-            if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue, spendType: spendType };
+            if (!monthlyActuals[monthKey]) monthlyActuals[monthKey] = { amount: 0, category: categoryValue };
             monthlyActuals[monthKey].amount += amount;
             // The category of the last item for a given month will be used.
             monthlyActuals[monthKey].category = categoryValue;
@@ -358,21 +353,25 @@ app.get("/api/budget", async (req, res) => {
         };
       });
 
-      // Categorize spend types dynamically
-      const spendData = {};
+      // Categorize spend types
+      const people = [];
+      const programs = [];
       Object.entries(spendTypeTotals).forEach(([name, data]) => {
-        const { amount, mainAccount, spendType } = data;
-        const category = (spendType || 'other').toLowerCase();
-        const spendItem = { name, amount, mainAccount };
-        if (!spendData[category]) {
-          spendData[category] = [];
+        const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
+        const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
+        const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'Uncategorized';
+        const spendItem = { name, amount, value: 0, spendType: category }; // Add spendType here
+        if (category === 'people') {
+          people.push(spendItem);
+        } else {
+          programs.push(spendItem);
         }
-        spendData[category].push(spendItem);
       });
 
       finalBudgetData[costCenter] = {
         teamName,
-        spendData,
+        people,
+        programs,
         months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
         actualItems: actualCostCenter // Pass raw actual items to the frontend
       };
@@ -483,7 +482,6 @@ app.post('/api/upload/actuals', upload.single('file'), async (req, res) => {
 
     // --- Validation Logic ---
     const errors = [];
- 
     //const requiredFields = ['Cost Center', 'Date', 'Amount', 'Document Description'];
 
     normalizedJsonData.forEach((row, index) => {
