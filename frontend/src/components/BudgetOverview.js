@@ -4,12 +4,90 @@ import { TeamBudgetChart } from './TeamBudgetChart';
 import UploadHistoryModal from './UploadHistoryModal';
 
 const BudgetOverview = ({budgetData, onDataUpdate }) => {
-  const costCenters = Object.keys(budgetData).filter(key => key !== 'financialYear');
-  const [primaryFilter, setPrimaryFilter] = useState('all'); // 'all', 'People', 'Programs'
+  const [primaryFilter, setPrimaryFilter] = useState('all');
   const [selectedSpendTypes, setSelectedSpendTypes] = useState([]);
   const [teamChartFilters, setTeamChartFilters] = useState({}); // Local filters for each team chart
   const [historyModal, setHistoryModal] = useState({ isOpen: false, dataType: '' });
   const [notification, setNotification] = useState({ isOpen: false, message: '', type: '' }); // 'success' or 'error'
+  const [periodFilter, setPeriodFilter] = useState('all'); // 'all', 'q1', 'q2', 'q3', 'q4'
+
+  const financialYear = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    // Assuming the financial year is the next year, as per "2025's financial year is 2026"
+    return currentYear + 1;
+  }, []);
+
+  const quarters = useMemo(() => ({
+    q1: ['Mar', 'Apr', 'May'],
+    q2: ['Jun', 'Jul', 'Aug'],
+    q3: ['Sep', 'Oct', 'Nov'],
+    q4: ['Dec', 'Jan', 'Feb']
+  }), []);
+
+
+  // Dynamically get all unique spend types from the budget data
+  const allSpendTypes = useMemo(() => {
+    if (!budgetData) return [];
+    const spendTypes = new Set();
+    Object.values(budgetData).forEach(team => {
+      if (team.spendData) {
+        Object.keys(team.spendData).forEach(spendType => {
+          spendTypes.add(spendType);
+        });
+      }
+    });
+    return Array.from(spendTypes);
+  }, [budgetData]);
+
+  const filteredBudgetData = useMemo(() => {
+    if (periodFilter === 'all') {
+      return budgetData;
+    }
+    const quarterMonths = quarters[periodFilter];
+    if (!quarterMonths) return budgetData;
+
+    const newBudgetData = JSON.parse(JSON.stringify(budgetData));
+
+    Object.keys(newBudgetData).forEach(costCenterKey => {
+      const team = newBudgetData[costCenterKey];
+      if (team && team.months) {
+        team.months = team.months.filter(month => quarterMonths.some(qMonth => month.month.startsWith(qMonth)));
+      }
+      if (team && team.actualItems) {
+        team.actualItems = team.actualItems.filter(item => {
+          if (!item.Date) return false;
+          const itemMonth = new Date(item.Date).toLocaleString('en-US', { month: 'short' });
+          return quarterMonths.includes(itemMonth);
+        });
+      }
+    });
+    return newBudgetData;
+  }, [budgetData, periodFilter, quarters]);
+
+  const processedBudgetData = useMemo(() => {
+    const data = JSON.parse(JSON.stringify(filteredBudgetData));
+    Object.keys(data).forEach(costCenterKey => {
+      const team = data[costCenterKey];
+      if (team && team.months && team.actualItems) {
+        // Reset all actuals to 0 first
+        team.months.forEach(month => {
+          month.actual = 0;
+        });
+
+        // Sum up actuals from actualItems into the correct month
+        team.actualItems.forEach(item => {
+          if (item.Date && item.Amount) {
+            const itemMonthShort = new Date(item.Date).toLocaleString('en-US', { month: 'short' });
+            const targetMonth = team.months.find(m => m.month.startsWith(itemMonthShort));
+            if (targetMonth) {
+              targetMonth.actual += item.Amount;
+            }
+          }
+        });
+      }
+    });
+    return data;
+  }, [filteredBudgetData]);
 
   const handlePrimaryFilterChange = (e) => {
     const newFilter = e.target.value;
@@ -36,20 +114,24 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
     }));
   };
 
+  const filteredCostCenters = useMemo(() => Object.keys(processedBudgetData).filter(key => key !== 'financialYear'), [processedBudgetData]);
+
   // Memoize the list of all unique spend types for the filter checkboxes
   const allUniqueSpendTypes = useMemo(() => {
     const spendTypes = new Set();
     const filterKey = primaryFilter.toLowerCase();
-    costCenters.forEach(cc => {
+    filteredCostCenters.forEach(cc => {
+      const teamSpendData = processedBudgetData[cc]?.spendData;
+      if (!teamSpendData) return;
+
       if (filterKey === 'all') {
-        (budgetData[cc]['people'] || []).forEach(item => spendTypes.add(item.name));
-        (budgetData[cc]['programs'] || []).forEach(item => spendTypes.add(item.name));
-      } else {
-        (budgetData[cc][filterKey] || []).forEach(item => spendTypes.add(item.name));
+        Object.values(teamSpendData).flat().forEach(item => spendTypes.add(item.name));
+      } else if (teamSpendData[filterKey]) {
+        teamSpendData[filterKey].forEach(item => spendTypes.add(item.name));
       }
     });
     return Array.from(spendTypes);
-  }, [budgetData, costCenters, primaryFilter]);
+  }, [processedBudgetData, primaryFilter, filteredCostCenters]);
 
   const handleFileUpload = async (event, dataType) => {
     const file = event.target.files[0];
@@ -138,22 +220,37 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
             <label htmlFor="primaryFilter" className="font-medium text-gray-700">Filter by:</label>
             <select id="primaryFilter" value={primaryFilter} onChange={handlePrimaryFilterChange} className="border rounded p-2">
               <option value="all">All Spend Types</option>
-              <option value="People">People</option>
-              <option value="Programs">Programs</option>
+              {allSpendTypes.map(type => (
+                // Capitalize first letter for display
+                <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+              ))}
+            </select>
+
+            <label htmlFor="periodFilter" className="font-medium text-gray-700 ml-4">Period:</label>
+            <select id="periodFilter" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="border rounded p-2">
+              <option value="all">Financial Year {financialYear}</option>
+              <optgroup label="Quarters">
+                <option value="q1">Quarter 1 (Mar - May)</option>
+                <option value="q2">Quarter 2 (Jun - Aug)</option>
+                <option value="q3">Quarter 3 (Sep - Nov)</option>
+                <option value="q4">Quarter 4 (Dec - Feb)</option>
+              </optgroup>
             </select>
           </div>
           <div className="mt-4">
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               {allUniqueSpendTypes.map(spendType => (
-                <label key={spendType} className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-600">
-                  <input 
-                    type="checkbox" 
-                    checked={selectedSpendTypes.includes(spendType)}
-                    onChange={() => handleSpendTypeChange(spendType)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  {spendType}
-                </label>
+                primaryFilter !== 'all' && (
+                  <label key={spendType} className="flex items-center gap-2 cursor-pointer text-sm font-medium text-gray-600">
+                    <input 
+                      type="checkbox" 
+                      checked={selectedSpendTypes.includes(spendType)}
+                      onChange={() => handleSpendTypeChange(spendType)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    {spendType}
+                  </label>
+                )
               ))}
             </div>
           </div>
@@ -163,23 +260,24 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           {useMemo(() => {
               // This logic now correctly calculates totals based on the selected filters.
-              const totalAnticipated = costCenters.reduce((total, cc) => {
-                const teamData = budgetData[cc];
+              const totalAnticipated = filteredCostCenters.reduce((total, cc) => {
+                const teamData = processedBudgetData[cc];
                 if (!teamData || !teamData.months) return total;
                 const teamAnticipatedTotal = teamData.months.reduce((sum, month) => sum + (month.anticipated || 0), 0);
                 return total + teamAnticipatedTotal;
               }, 0);
 
 
-              // Correctly calculate totalActual by summing the 'Amount' from every row in 'actualItems' across all cost centers.
-              const totalActual = costCenters.reduce((total, cc) => {
-                const teamData = budgetData[cc];
+              // Correctly calculate totalActual by summing the 'Amount' from every row in the filtered 'actualItems'
+              const totalActual = filteredCostCenters.reduce((total, cc) => {
+                const teamData = processedBudgetData[cc];
                 const teamActualTotal = (teamData.actualItems || []).reduce((sum, item) => sum + (item.Amount || 0), 0);
                 return total + teamActualTotal;
               }, 0);
 
               const variance = totalActual - totalAnticipated;
-              const averageMonthly = totalActual / 12;
+              const monthCount = periodFilter === 'all' ? 12 : 3;
+              const averageMonthly = totalActual / monthCount;
               return (
               <>
                 <div className="bg-blue-50 p-4 rounded-lg">
@@ -214,13 +312,13 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
                 </div>
               </>
               );
-          }, [budgetData, costCenters, primaryFilter, selectedSpendTypes, allUniqueSpendTypes])}
+          }, [processedBudgetData, periodFilter, filteredCostCenters])}
         </div>
         
         {/* Cost Center Budget Charts - 3 per row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {costCenters.map((costCenter) => {
-            const teamData = budgetData[costCenter];
+          {filteredCostCenters.map((costCenter) => {
+            const teamData = processedBudgetData[costCenter];
             // Add a guard to ensure teamData exists before rendering the card
             if (!teamData) return null;
 
@@ -239,19 +337,19 @@ const BudgetOverview = ({budgetData, onDataUpdate }) => {
                     {teamData.teamName}
                   </h3>
                   <div className="flex border border-gray-200 rounded-md p-0.5">
-                    {['All', 'People', 'Programs'].map(filter => (
+                    {['all', ...Object.keys(teamData.spendData || {})].map(filter => (
                       <button
                         key={filter}
-                        onClick={() => handleTeamFilterChange(costCenter, filter.charAt(0).toLowerCase() + filter.slice(1))}
+                        onClick={() => handleTeamFilterChange(costCenter, filter)}
                         className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${
-                          currentFilter === (filter.charAt(0).toLowerCase() + filter.slice(1)) ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                          currentFilter === filter ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
                         }`}
-                      >{filter}</button>
+                      >{filter.charAt(0).toUpperCase() + filter.slice(1)}</button>
                     ))}
                   </div>
                 </div>
                 <p className="text-sm text-gray-600 mb-4">{currentFilter === 'all' ? 'Actual vs. Anticipated Spend' : `Monthly spend breakdown for ${currentFilter}.`}</p>
-                <div className="h-64 mb-4">
+                <div className="flex-grow h-64 mb-4">
                   <TeamBudgetChart teamData={teamData} currentFilter={currentFilter} />
                 </div>
                 

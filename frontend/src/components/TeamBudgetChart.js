@@ -16,7 +16,7 @@ export const TeamBudgetChart = ({ teamData, currentFilter }) => {
     }
 
     // Calculate data for stacked bar charts (People/Programs)
-    const relevantSpendTypes = teamData[currentFilter] || [];
+    const relevantSpendTypes = teamData.spendData[currentFilter] || [];
     const totalCategoryBudget = relevantSpendTypes.reduce((sum, s) => sum + s.amount, 0);
 
     return teamData.months.map(month => {
@@ -49,7 +49,7 @@ export const TeamBudgetChart = ({ teamData, currentFilter }) => {
           <YAxis fontSize={10} tickFormatter={(value) => `${value / 1000}k`} />
           <Tooltip formatter={(value, name) => [`R${value.toLocaleString()}`, name]} labelStyle={{ color: '#333' }} />
           <Legend wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }} iconType="circle" iconSize={8} />
-          {(teamData[currentFilter] || []).map((spendType, index) => (
+          {(teamData.spendData[currentFilter] || []).map((spendType, index) => (
             <Bar key={spendType.name} dataKey={spendType.name} stackId="a" name={spendType.name} fill={COLORS[index % COLORS.length]} />
           ))}
         </BarChart>

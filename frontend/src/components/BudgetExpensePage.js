@@ -22,15 +22,74 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
   const [editingRecordData, setEditingRecordData] = useState(null); // Will hold the _id for editing
   const [addMonthError, setAddMonthError] = useState('');
   const [editMonthError, setEditMonthError] = useState('');
-  const [monthlyChartFilter, setMonthlyChartFilter] = useState('all'); // 'all', 'people', 'programs'
+  const [monthlyChartFilter, setMonthlyChartFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState('all'); // 'all', 'q1', 'q2', 'q3', 'q4'
   
   // Reset updated data when team changes
   React.useEffect(() => {
     setUpdatedTeamData(null);
+    setPeriodFilter('all'); // Also reset period filter on team change
   }, [selectedTeam]);
+
+  const financialYear = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return currentYear + 1;
+  }, []);
+
+  const quarters = useMemo(() => ({
+    q1: ['Mar', 'Apr', 'May'],
+    q2: ['Jun', 'Jul', 'Aug'],
+    q3: ['Sep', 'Oct', 'Nov'],
+    q4: ['Dec', 'Jan', 'Feb']
+  }), []);
   
   // Use updated data if available, otherwise use original data
   const teamData = updatedTeamData || budgetData[selectedTeam];
+
+  const filteredTeamData = useMemo(() => {
+    if (periodFilter === 'all' || !teamData) {
+      return teamData;
+    }
+    const quarterMonths = quarters[periodFilter];
+    if (!quarterMonths) return teamData;
+
+    const newTeamData = JSON.parse(JSON.stringify(teamData));
+
+    newTeamData.months = newTeamData.months.filter(month => quarterMonths.some(qMonth => month.month.startsWith(qMonth)));
+    newTeamData.actualItems = newTeamData.actualItems.filter(item => {
+      if (!item.Date) return false;
+      const itemMonth = new Date(item.Date).toLocaleString('en-US', { month: 'short' });
+      return quarterMonths.includes(itemMonth);
+    });
+
+    return newTeamData;
+  }, [teamData, periodFilter, quarters]);
+
+  const processedTeamData = useMemo(() => {
+    if (!filteredTeamData) return null;
+  
+    // Deep copy to avoid mutating the original state
+    const data = JSON.parse(JSON.stringify(filteredTeamData));
+  
+    if (data && data.months && data.actualItems) {
+      // Reset all monthly actuals to 0 before recalculating
+      data.months.forEach(month => {
+        month.actual = 0;
+      });
+  
+      // Sum up actuals from actualItems into the correct month
+      data.actualItems.forEach(item => {
+        if (item.Date && typeof item.Amount === 'number') {
+          const itemMonthShort = new Date(item.Date).toLocaleString('en-US', { month: 'short' });
+          const targetMonth = data.months.find(m => m.month.startsWith(itemMonthShort));
+          if (targetMonth) {
+            targetMonth.actual += item.Amount;
+          }
+        }
+      });
+    }
+    return data;
+  }, [filteredTeamData]);
 
   const accountMap = useMemo(() => {
     const map = new Map();
@@ -38,20 +97,36 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
     return map;
   }, [allAccounts]);
 
+  const allSpendTypes = useMemo(() => {
+    if (!processedTeamData || !processedTeamData.spendData) return [];
+    return ['all', ...Object.keys(processedTeamData.spendData).sort()];
+  }, [processedTeamData]);
+
   const allSpendTypesWithValues = useMemo(() => {
-    if (!teamData) return [];
-    const all = [...(teamData.people || []), ...(teamData.programs || [])];
-    const totalAmount = all.reduce((sum, item) => sum + (item.amount || 0), 0);
+    if (!processedTeamData || !processedTeamData.spendData) return [];
+    const allItems = Object.values(processedTeamData.spendData).flat();
+    const totalAmount = allItems.reduce((sum, item) => sum + (item.amount || 0), 0);
     
     if (totalAmount === 0) {
-      return all.map(item => ({ ...item, value: 0 }));
+      return allItems.map(item => ({ ...item, value: 0 }));
     }
 
-    return all.map(item => ({
+    return allItems.map(item => ({
       ...item,
+      spendType: Object.keys(processedTeamData.spendData).find(key => processedTeamData.spendData[key].includes(item)),
       value: Math.round((item.amount / totalAmount) * 100)
     }));
-  }, [teamData]);
+  }, [processedTeamData]);
+
+  const pieChartData = useMemo(() => {
+    if (!allSpendTypesWithValues || allSpendTypesWithValues.length === 0) return [];
+    const spendTypeTotals = allSpendTypesWithValues.reduce((acc, item) => {
+      const type = item.spendType || 'other';
+      acc[type] = (acc[type] || 0) + item.amount;
+      return acc;
+    }, {});
+    return Object.entries(spendTypeTotals).map(([name, value]) => ({ name: name.charAt(0).toUpperCase() + name.slice(1), value }));
+  }, [allSpendTypesWithValues]);
 
   const processUploadedData = (uploadedRows) => {
     const newBudgetData = { ...budgetData };
@@ -150,11 +225,11 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
 
 
   const handleDownloadMonthlyXLSX = () => {
-    if (!teamData || !teamData.actualItems) return;
+    if (!processedTeamData || !processedTeamData.actualItems) return;
 
-    const headers = ['Date', 'Description', 'Document Description', 'Main Account Name', 'Party Name', 'Category', 'Amount'];
+    const headers = ['Date', 'Description', 'Document Description', 'Main Account Name', 'Party Name', 'Category', 'Amount']; // Removed 'Spend Type' as it's not in actualItems
     
-    const dataForSheet = teamData.actualItems.map(item => {
+    const dataForSheet = filteredTeamData.actualItems.map(item => {
       return {
         'Date': item.Date ? new Date(item.Date).toLocaleDateString('en-ZA') : '',
         'Description': item["Account entry description"],
@@ -172,10 +247,10 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
 
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=UTF-8' });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(blob); // No changes here, just for context
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${teamData.teamName}-monthly-budget.xlsx`;
+    link.download = `${filteredTeamData.teamName}-monthly-budget.xlsx`;
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -291,11 +366,11 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
   };
   
 
-  const totalActual = teamData.months.reduce((sum, month) => sum + month.actual, 0);
-  const totalAnticipated = teamData.months.reduce((sum, month) => sum + month.anticipated, 0);
+  const totalActual = processedTeamData?.months.reduce((sum, month) => sum + month.actual, 0) || 0;
+  const totalAnticipated = processedTeamData?.months.reduce((sum, month) => sum + month.anticipated, 0) || 0;
   const variance = totalActual - totalAnticipated;
 
-  if (!teamData) {
+  if (!processedTeamData) {
     return (
       <div className="p-6 bg-white min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -308,7 +383,21 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
   return (
     <div className="p-6 bg-white min-h-screen">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold text-[#1F4659] mb-4">Budget Details - {teamData.teamName}</h1>
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-3xl font-bold text-[#1F4659]">Budget Details - {processedTeamData.teamName}</h1>
+          <div className="flex items-center gap-4">
+            <label htmlFor="periodFilter" className="font-medium text-gray-700">Period:</label>
+            <select id="periodFilter" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)} className="border rounded p-2">
+              <option value="all">Financial Year {financialYear}</option>
+              <optgroup label="Quarters">
+                <option value="q1">Quarter 1 (Mar - May)</option>
+                <option value="q2">Quarter 2 (Jun - Aug)</option>
+                <option value="q3">Quarter 3 (Sep - Nov)</option>
+                <option value="q4">Quarter 4 (Dec - Feb)</option>
+              </optgroup>
+            </select>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-blue-50 p-4 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
@@ -343,14 +432,14 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
           <div className="flex justify-between items-start mb-2">
             <h3 className="text-lg font-semibold text-gray-800">Actual vs Anticipated</h3>
             <div className="flex border border-gray-200 rounded-md p-0.5">
-              {['All', 'People', 'Programs'].map(filter => (
+              {allSpendTypes.map(filter => (
                 <button
                   key={filter}
-                  onClick={() => setMonthlyChartFilter(filter.toLowerCase())}
+                  onClick={() => setMonthlyChartFilter(filter)}
                   className={`px-2 py-0.5 text-xs rounded-sm transition-colors ${
-                    monthlyChartFilter === filter.toLowerCase() ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                    monthlyChartFilter === filter ? 'bg-blue-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
                   }`}
-                >{filter}</button>
+                >{filter.charAt(0).toUpperCase() + filter.slice(1)}</button>
               ))}
             </div>
           </div>
@@ -364,8 +453,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
             <ResponsiveContainer width="100%" height="100%">
               {monthlyChartFilter === 'all' ? (
                 <BarChart data={
-                  // Aggregate data by month for the 'All' view
-                  Object.values(teamData.months.reduce((acc, month) => {
+                  Object.values((processedTeamData.months || []).reduce((acc, month) => {
                     if (!acc[month.month]) {
                       acc[month.month] = { month: month.month, actual: 0, anticipated: 0 };
                     }
@@ -383,13 +471,13 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
                   <Bar dataKey="anticipated" fill="#F97316" name="Anticipated Budget" barSize={0} />
                 </BarChart>
               ) : (
-                <BarChart data={teamData.months.map(month => {
+                <BarChart data={processedTeamData.months.map(month => {
                   const monthData = { month: month.month };
-                  const relevantSpendTypes = teamData[monthlyChartFilter] || [];
+                  const relevantSpendTypes = processedTeamData.spendData[monthlyChartFilter] || [];
                   const totalCategoryBudget = relevantSpendTypes.reduce((sum, s) => sum + s.amount, 0);
                   relevantSpendTypes.forEach(spendType => {
                     const proportion = totalCategoryBudget > 0 ? spendType.amount / totalCategoryBudget : 0;
-                    monthData[spendType.name] = month.actual * proportion;
+                    monthData[spendType.name] = (month.actual * proportion);
                   });
                   return monthData;
                 })}>
@@ -398,7 +486,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
                   <YAxis tickFormatter={(value) => `${value/1000}k`} fontSize={12} />
                   <Tooltip formatter={(value, name) => [`R${value.toLocaleString()}`, name]} />
                   <Legend wrapperStyle={{ paddingTop: '20px', fontSize: '10px' }} iconType="circle" iconSize={8} />
-                  {(teamData[monthlyChartFilter] || []).map((spendType, index) => (
+                  {(processedTeamData.spendData[monthlyChartFilter] || []).map((spendType, index) => (
                     <Bar key={spendType.name} dataKey={spendType.name} stackId="a" name={spendType.name} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </BarChart>
@@ -433,16 +521,16 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={allSpendTypesWithValues}
+                  data={pieChartData}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, value }) => `${name}: ${value}%`}
+                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {allSpendTypesWithValues.map((entry, index) => (
+                  {pieChartData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -485,12 +573,14 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
           </div>
         </div>
         
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[60vh]">
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-gray-50">
                 <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Date</th>
                 <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Category</th>
+                <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Spend Type</th>
+                <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Main Account</th>
                 <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Main Account Name</th>
                 <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Account Entry Description</th>
                 <th className="border border-gray-200 px-4 py-3 text-left font-semibold">Document Description</th>
@@ -500,7 +590,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
               </tr>
             </thead>
             <tbody>
-              {(teamData.actualItems || []).map((item, index) => {
+              {(processedTeamData.actualItems || []).map((item, index) => {
                 const isEditing = editingMonthKey === item._id;
 
                 return isEditing ? (
@@ -564,6 +654,8 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
                   <tr key={`display-${index}`} className="hover:bg-gray-50">
                     <td className="border border-gray-200 px-4 py-3">{item.Date ? new Date(item.Date).toLocaleDateString() : ''}</td>
                     <td className="border border-gray-200 px-4 py-3">{item.Category}</td>
+                    <td className="border border-gray-200 px-4 py-3">{item.spendType?.charAt(0).toUpperCase() + item.spendType?.slice(1)}</td>
+                    <td className="border border-gray-200 px-4 py-3">{item["Main Account"]}</td>
                     <td className="border border-gray-200 px-4 py-3">{item["Main Account Name"]}</td>
                     <td className="border border-gray-200 px-4 py-3">{item["Account entry description"]}</td>
                     <td className="border border-gray-200 px-4 py-3">{item["Document Description"]}</td>
@@ -655,7 +747,7 @@ const BudgetExpensePage = ({ selectedTeam, budgetData, setBudgetData, onDataUpda
             <tbody>
               {allSpendTypesWithValues.map((spendItem, index) => (
                 <tr key={index} className="hover:bg-gray-50">
-                  <td className="border border-gray-200 px-4 py-3">{teamData.people.some(p => p.name === spendItem.name) ? 'People' : 'Programs'}</td>
+                  <td className="border border-gray-200 px-4 py-3">{spendItem.spendType.charAt(0).toUpperCase() + spendItem.spendType.slice(1)}</td>
                   <td className="border border-gray-200 px-4 py-3">{spendItem.value}%</td>
                   <td className="border border-gray-200 px-4 py-3">R{spendItem.amount.toLocaleString()}</td>
                 </tr>
