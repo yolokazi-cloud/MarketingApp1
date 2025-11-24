@@ -354,24 +354,22 @@ app.get("/api/budget", async (req, res) => {
       });
 
       // Categorize spend types
-      const people = [];
-      const programs = [];
+      const spendData = {};
       Object.entries(spendTypeTotals).forEach(([name, data]) => {
         const { amount, mainAccount } = data; // mainAccount here is the original one from the item, which might be a string
         const normalizedMainAccount = Number(mainAccount); // Ensure it's a number for lookup
         const category = spendTypeCategoryMap[normalizedMainAccount] ? spendTypeCategoryMap[normalizedMainAccount].spendType : 'Uncategorized';
         const spendItem = { name, amount, value: 0, spendType: category }; // Add spendType here
-        if (category === 'people') {
-          people.push(spendItem);
-        } else {
-          programs.push(spendItem);
+
+        if (!spendData[category]) {
+          spendData[category] = [];
         }
+        spendData[category].push(spendItem);
       });
 
       finalBudgetData[costCenter] = {
         teamName,
-        people,
-        programs,
+        spendData, // Use the new spendData object
         months: monthsData.sort((a, b) => new Date(`01-${a.month}`) - new Date(`01-${b.month}`)),
         actualItems: actualCostCenter // Pass raw actual items to the frontend
       };
